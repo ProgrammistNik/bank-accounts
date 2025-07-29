@@ -185,7 +185,7 @@ GET /accounts?ownerId=123&type=Deposit&currency=EUR&page=2&pageSize=50
 ```
 Ответ (400 Bad Request) - ошибки валидации.
 
-Ответ (404 Not Found): счёта не существует.
+Ответ (404 Not Found) - счёта не существует.
 ### 9. Проверка счетов у клиента
 `GET /accounts?ownerId=123`
 
