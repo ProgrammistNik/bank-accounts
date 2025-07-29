@@ -14,7 +14,7 @@ Swagger
 
 ## Управление счетами
 
-### 1. Создание счета
+### 1. Создание счёта
 `POST /accounts`
 
 Тело запроса:
@@ -26,9 +26,9 @@ Swagger
   "interestRate": 3.0,   
 }
 ```
-Ответ (201 Created) - ID созданного счета.
+Ответ (201 Created) - ID созданного счёта.
 Ответ (400 Bad Request) - ошибки валидации.
-### 2. Изменение счета
+### 2. Изменение счёта
 `PATCH /accounts/{id}`
 
 Тело запроса:
@@ -46,19 +46,19 @@ Swagger
 
 Ответ (400 BadRequest) - ошибки валидации.
 
-Ответ (404 NotFound) - счёт не существует.
+Ответ (404 NotFound) - счёта не существует.
 
-**Если требуется закрыть счет:**
+**Если требуется закрыть счёт:**
 
 ### 4. Закрытие счёта
 
 `PATCH /accounts/{id}/close`
 
-Ответ (200 Ok) - счет закрыт.
+Ответ (200 Ok) - счёт закрыт.
 
 Ответ (400 BadRequest) - ошибки валидации.
 
-Ответ (404 NotFound) - счёт не существует.
+Ответ (404 NotFound) - счёта не существует.
 ### 5. Получение счетов
 
 *По умолчанию возвращаются все счета, отсортированные по дате, требуется использовать фильтрацию*
@@ -107,7 +107,7 @@ GET /accounts?ownerId=123&type=Deposit&currency=EUR&page=2&pageSize=50
 ```
 Ответ (400 Bad Request) - ошибки валидации.
 
-Ответ (404 Not Found) - счёт не существует.
+Ответ (404 Not Found) - счёта не существует.
 ### 6. Создание транзакции
 `POST /transactions`
 
@@ -127,8 +127,8 @@ GET /accounts?ownerId=123&type=Deposit&currency=EUR&page=2&pageSize=50
 
 Ответ (400 Bad Request) - ошибки валидации.
 
-Ответ (404 Not Found) - счёт не существует.
-### 7.  Выполнение перевода между счётами
+Ответ (404 Not Found) - транзакции не существует.
+### 7.  Выполнение перевода между счетами
 `POST /transactions`
 
 Запрос:
@@ -147,7 +147,7 @@ GET /accounts?ownerId=123&type=Deposit&currency=EUR&page=2&pageSize=50
 
 Ответ (400 Bad Request) - ошибки валидации.
 
-Ответ (404 Not Found) - счёт не существует.
+Ответ (404 Not Found) - транзакции не существует.
 ### 8. Получение выписки
 `GET /accounts/{accountId}/statement?start=2025-03-01&end=2025-03-31`
 
@@ -185,7 +185,7 @@ GET /accounts?ownerId=123&type=Deposit&currency=EUR&page=2&pageSize=50
 ```
 Ответ (400 Bad Request) - ошибки валидации.
 
-Ответ (404 Not Found): счет не существует.
+Ответ (404 Not Found): счёта не существует.
 ### 9. Проверка счетов у клиента
 `GET /accounts?ownerId=123`
 
@@ -218,4 +218,4 @@ GET /accounts?ownerId=123&type=Deposit&currency=EUR&page=2&pageSize=50
 ```
 Ответ (400 Bad Request) - ошибки валидации.
 
-Ответ (404 Not Found) - счёт не существует.
+Ответ (404 Not Found) - счёта не существует.
