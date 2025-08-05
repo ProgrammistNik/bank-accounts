@@ -1,7 +1,8 @@
 using bank_accounts.Account.Commands;
 using bank_accounts.Account.Dto;
-using bank_accounts.Account.Queries;
+using bank_accounts.Account.MbResult;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace bank_accounts.Account.Controllers;
@@ -10,6 +11,7 @@ namespace bank_accounts.Account.Controllers;
 /// </summary>
 [Route("api/[controller]")]
 [ApiController]
+[Authorize]
 public class TransactionController(IMediator mediator) : ControllerBase
 {
     /// <summary>
@@ -23,6 +25,7 @@ public class TransactionController(IMediator mediator) : ControllerBase
     /// - Неверная операция перевода
     /// - Валюты не совпадают
     /// </response>
+    /// <response code="401">Не авторизован</response>
     /// <response code="404">Счет не найден</response>
     /// <response code="409">
     /// Возможные ошибки:
@@ -41,28 +44,37 @@ public class TransactionController(IMediator mediator) : ControllerBase
             Description = transactionDto.Description
         };
         var transaction = await mediator.Send(command);
-        return Ok(transaction);
+        return Ok(MbResult<ReturnTransactionDto>.Success(transaction));
     }
     
     /// <summary>
-    /// Получение выписки по счёту
+    /// Зарегистрировать входящую/исходящую транзакцию
     /// </summary>
-    /// <param name="accountId">Id банковского счета</param>
-    /// <param name="from">Дата начала периода</param>
-    /// <param name="to">Дата окончания периода</param>
-    /// <response code="200"/>
-    /// <response code="400">Некорректные данные запроса</response>
+    /// <param name="transactionDto">Данные для транзакции</param>
+    /// <response code="200">Успешное выполнение транзакции</response>
+    /// <response code="400">
+    /// Возможные ошибки:
+    /// - Некорректные данные запроса
+    /// </response>
+    /// <response code="401">Не авторизован</response>
     /// <response code="404">Счет не найден</response>
-    [HttpGet("/transaction/{accountId:guid}")]
-    public async Task<IActionResult> GetAccountStatement(Guid accountId, [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null)
+    /// <response code="409">
+    /// Возможные ошибки:
+    /// - Аккаунт закрыт
+    /// - Недостаточно средств
+    /// </response>
+    [HttpPost("/incoming-outgoing-transaction")]
+    public async Task<IActionResult> RegisterIncomingOutcomingTransaction([FromBody] RegisterIncomingOutgoingTransactionDto transactionDto)
     {
-        var query = new GetAccountStatementQuery
+        var command = new RegisterIncomingOrOutgoingTransactionsCommand
         {
-            AccountId = accountId,
-            From = from,
-            To = to
+            AccountId = transactionDto.AccountId,
+            Amount = transactionDto.Amount,
+            Currency = transactionDto.Currency,
+            TransactionType = transactionDto.TransactionType,
+            Description = transactionDto.Description
         };
-        var transactions = await mediator.Send(query);
-        return Ok(transactions);
+        var transaction = await mediator.Send(command);
+        return Ok(MbResult<ReturnTransactionDto>.Success(transaction));
     }
 }

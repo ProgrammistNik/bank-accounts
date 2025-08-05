@@ -1,7 +1,9 @@
 using bank_accounts.Account.Commands;
 using bank_accounts.Account.Dto;
 using bank_accounts.Account.Queries;
+using bank_accounts.Account.MbResult;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace bank_accounts.Account.Controllers;
@@ -10,6 +12,7 @@ namespace bank_accounts.Account.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class AccountController(IMediator mediator) : ControllerBase
 {
     /// <summary>
@@ -23,6 +26,7 @@ public class AccountController(IMediator mediator) : ControllerBase
     /// - Неверная операция перевода
     /// - Валюты не совпадают
     /// </response>
+    /// <response code="401">Не авторизован</response>
     /// <response code="404">Счет не найден</response>
     /// <response code="409">
     /// Возможные ошибки:
@@ -43,7 +47,7 @@ public class AccountController(IMediator mediator) : ControllerBase
         };
         
         var result = await mediator.Send(account);
-        return Ok(result);
+        return Ok(MbResult<ReturnAccountDto>.Success(result));
         
     }
     
@@ -53,6 +57,7 @@ public class AccountController(IMediator mediator) : ControllerBase
     /// <param name="accountId">Id банковского счета</param>
     /// <response code="200">Счёт успешно закрыт</response>
     /// <response code="400">Некорректные данные запроса</response>
+    /// <response code="401">Не авторизован</response>
     /// <response code="404">Счет не найден</response>
     [HttpDelete("/account/{accountId:guid}")]
     public async Task<IActionResult> CloseAccount(Guid accountId)
@@ -63,7 +68,7 @@ public class AccountController(IMediator mediator) : ControllerBase
         };
         
         var result = await mediator.Send(command);
-        return Ok(result);
+        return Ok(MbResult<ReturnAccountDto>.Success(result));
         
     }
     
@@ -73,6 +78,7 @@ public class AccountController(IMediator mediator) : ControllerBase
     /// <param name="ownerId">Id владельца банковского счета</param>
     /// <response code="200"/>
     /// <response code="400">Некорректные данные запроса</response>
+    /// <response code="401">Не авторизован</response>
     /// <response code="409">
     /// Возможные ошибки:
     /// - Аккаунт закрыт
@@ -87,7 +93,7 @@ public class AccountController(IMediator mediator) : ControllerBase
         };
         
         var result = await mediator.Send(query);
-        return Ok(result);
+        return Ok(MbResult<IList<ReturnAccountDto>>.Success(result));
     }
     
     /// <summary>
@@ -101,6 +107,7 @@ public class AccountController(IMediator mediator) : ControllerBase
     /// - Некорректные данные запроса
     /// - Аккаунт не поддерживает процентную ставку
     /// </response>
+    /// <response code="401">Не авторизован</response>
     /// <response code="404">Счет не найден</response>
     /// <response code="409">Аккаунт закрыт</response>
     [HttpPatch("/account/{accountId:guid}/interest-rate")]
@@ -113,7 +120,7 @@ public class AccountController(IMediator mediator) : ControllerBase
         };
         
         var result = await mediator.Send(command);
-        return Ok(result);
+        return Ok(MbResult<ReturnAccountDto>.Success(result));
     }
     
     /// <summary>
@@ -122,6 +129,7 @@ public class AccountController(IMediator mediator) : ControllerBase
     /// <param name="accountId">Id банковского счета</param>
     /// <response code="200">Счёт существует</response>
     /// <response code="400">Некорректные данные запроса</response>
+    /// <response code="401">Не авторизован</response>
     /// <response code="404">Счет не найден</response>
     [HttpGet("/accounts/{accountId:guid}")]
     public async Task<IActionResult> CheckIfAccountExists(Guid accountId)
@@ -134,8 +142,31 @@ public class AccountController(IMediator mediator) : ControllerBase
         var result = await mediator.Send(query);
         return Ok(new { 
             Message = "Счёт существует",
-            Account = result 
+            Result = MbResult<ReturnAccountDto>.Success(result) 
         });
+    }
+    
+    /// <summary>
+    /// Получение выписки по счёту
+    /// </summary>
+    /// <param name="accountId">Id банковского счета</param>
+    /// <param name="from">Дата начала периода</param>
+    /// <param name="to">Дата окончания периода</param>
+    /// <response code="200"/>
+    /// <response code="400">Некорректные данные запроса</response>
+    /// <response code="401">Не авторизован</response>
+    /// <response code="404">Счет не найден</response>
+    [HttpGet("/account/{accountId:guid}/transactions")]
+    public async Task<IActionResult> GetAccountStatement(Guid accountId, [FromQuery] DateTime? from = null, [FromQuery] DateTime? to = null)
+    {
+        var query = new GetAccountStatementQuery
+        {
+            AccountId = accountId,
+            From = from,
+            To = to
+        };
+        var transactions = await mediator.Send(query);
+        return Ok(MbResult<IList<ReturnTransactionDto>>.Success(transactions));
     }
     
 }

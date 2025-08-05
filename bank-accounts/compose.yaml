@@ -1,7 +1,33 @@
-﻿services:
+﻿version: '3.8'
+
+services:
   bank-accounts:
     image: bank-accounts
     build:
       context: .
       dockerfile: bank-accounts/Dockerfile
-
+    command: ["dotnet run"]
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+    restart: unless-stopped
+    
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.2
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+    command:
+      - start-dev
+      - --import-realm
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ./config/realm-export.json:/opt/keycloak/data/import/realm.json
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8081/auth/realms/master" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped 

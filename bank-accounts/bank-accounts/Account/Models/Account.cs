@@ -1,7 +1,9 @@
 using bank_accounts.Account.Enums;
+using JetBrains.Annotations;
 
 namespace bank_accounts.Account.Models;
 
+// Resharper жалуется на неиспользование некоторых типов, но они используются через рефлексию.
 public class Account
 {
     private decimal? _interestRate;
@@ -12,10 +14,10 @@ public class Account
     public decimal Balance { get; set; }
     public decimal? InterestRate
     {
-        get => _interestRate;
+        [UsedImplicitly] get => _interestRate;
         set => _interestRate = AccountType == AccountType.Checking ? null : value;
     } // процентная ставка
-    public DateTime CreatedAt { get; set; }
+    public DateTime CreatedAt { [UsedImplicitly] get; set; }
     public DateTime? ClosedAt { get; set; }
     public bool IsClosed => ClosedAt.HasValue;
     public ICollection<Transaction> Transactions { get; } = new List<Transaction>();

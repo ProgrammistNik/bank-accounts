@@ -13,7 +13,14 @@ public interface IAccountService
        Guid accountId, 
        Guid counterpartyId, 
        decimal amount, 
-       Currency currency,  
+       Currency currency,
+       string description = "");
+
+   Models.Transaction RegisterIncomingOrOutgoingTransactionsCommand(
+       Guid accountId,
+       decimal amount,
+       Currency currency,
+       TransactionType transactionType,
        string description = "");
    List<Models.Transaction> GetAccountTransactions(Guid accountId, DateTime? startDate, DateTime? endDate);
 }
