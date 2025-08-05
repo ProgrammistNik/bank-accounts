@@ -1,7 +1,0 @@
-﻿services:
-  bank-accounts:
-    image: bank-accounts
-    build:
-      context: .
-      dockerfile: bank-accounts/Dockerfile
-
