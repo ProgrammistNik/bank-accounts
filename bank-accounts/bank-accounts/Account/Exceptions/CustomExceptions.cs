@@ -51,8 +51,18 @@ public abstract class CustomExceptions(
         "Валюты у счетов не совпадают"); 
     
     
-    public class InvalidTransferException() : CustomExceptions(HttpStatusCode.BadRequest,
+    public class InvalidTransferException(string error) : CustomExceptions(HttpStatusCode.BadRequest,
         "https://tools.ietf.org/html/rfc7231#section-6.5.1",
         "Неверная операция перевода",
-        "Операция перевода не может быть выполнена из-за неверных данных"); 
+        $"Операция перевода не может быть выполнена из-за неверных данных: {error}"); 
+    
+    public class InvalidBalanceStateException(decimal balanceBefore, decimal balanceAfter) : CustomExceptions(HttpStatusCode.Conflict,
+        "https://tools.ietf.org/html/rfc7231#section-6.5.8",
+        "Неверное состояние баланса",
+        $"Баланс аккаунта изменился с {balanceBefore} на {balanceAfter} в процессе транзакции, что недопустимо");
+    
+    public class ConcurrencyConflictException(Guid accountId) : CustomExceptions(HttpStatusCode.Conflict,
+        "https://tools.ietf.org/html/rfc7231#section-6.5.8",
+        "Конфликт параллельных изменений",
+        $"Аккаунт {accountId} был изменен другим пользователем.");
 }

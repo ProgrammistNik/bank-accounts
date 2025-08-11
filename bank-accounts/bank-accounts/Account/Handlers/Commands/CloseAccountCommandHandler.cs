@@ -9,9 +9,9 @@ namespace bank_accounts.Account.Handlers.Commands;
 public class CloseAccountCommandHandler(IAccountService accountService, IMapper mapper)
     : IRequestHandler<CloseAccountCommand, ReturnAccountDto>
 {
-    public Task<ReturnAccountDto> Handle(CloseAccountCommand request, CancellationToken cancellationToken)
+    public async Task<ReturnAccountDto> Handle(CloseAccountCommand request, CancellationToken cancellationToken)
     {
-        var account =  accountService.CloseAccount(request.AccountId);
-        return Task.FromResult(mapper.Map<ReturnAccountDto>(account));
+        var account = await accountService.CloseAccount(request.AccountId);
+        return mapper.Map<ReturnAccountDto>(account);
     }
 }

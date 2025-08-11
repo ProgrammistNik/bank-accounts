@@ -15,7 +15,7 @@ public class CreateAccountCommandHandler(
     IMapper mapper)
     : IRequestHandler<CreateAccountCommand, ReturnAccountDto>
 {
-    public Task<ReturnAccountDto> Handle(CreateAccountCommand request, CancellationToken cancellationToken)
+    public async Task<ReturnAccountDto> Handle(CreateAccountCommand request, CancellationToken cancellationToken)
     {
         var isInterestAccount = request.AccountType is AccountType.Credit or AccountType.Deposit;
         
@@ -38,11 +38,11 @@ public class CreateAccountCommandHandler(
             Currency = request.Currency,
             Balance = request.Balance,
             InterestRate = isInterestAccount ? request.InterestRate : null,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.UtcNow
         };
         
-        accountService.AddAccountToList(account);
+        await accountService.AddAccountToList(account);
 
-        return Task.FromResult(mapper.Map<ReturnAccountDto>(account));
+        return mapper.Map<ReturnAccountDto>(account);
     }
 }

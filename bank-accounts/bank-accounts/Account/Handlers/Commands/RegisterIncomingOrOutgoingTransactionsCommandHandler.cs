@@ -9,14 +9,14 @@ namespace bank_accounts.Account.Handlers.Commands;
 public class RegisterIncomingOrOutgoingTransactionsCommandHandler(IAccountService accountService, IMapper mapper)
 : IRequestHandler<RegisterIncomingOrOutgoingTransactionsCommand, ReturnTransactionDto>
 {
-    public Task<ReturnTransactionDto> Handle(RegisterIncomingOrOutgoingTransactionsCommand request, CancellationToken cancellationToken)
+    public async Task<ReturnTransactionDto> Handle(RegisterIncomingOrOutgoingTransactionsCommand request, CancellationToken cancellationToken)
     {
-        var transaction = accountService.RegisterIncomingOrOutgoingTransactionsCommand(
+        var transaction = await accountService.RegisterIncomingOrOutgoingTransactionsCommand(
             request.AccountId,
             request.Amount,
             request.Currency,
             request.TransactionType,
             request.Description);
-        return Task.FromResult(mapper.Map<ReturnTransactionDto>(transaction));
+        return mapper.Map<ReturnTransactionDto>(transaction);
     }
 }

@@ -4,24 +4,28 @@ namespace bank_accounts.Account.Interfaces;
 
 public interface IAccountService
 {
-   void AddAccountToList(Models.Account account); 
-   Models.Account CloseAccount(Guid accountId);
-   IList<Models.Account> GetUserAccounts(Guid ownerId);
-   Models.Account ChangeInterestRate(Guid accountId, decimal interestRate);
-   Models.Account GetAccountById(Guid accountId);
-   Models.Transaction RegisterAccountTransaction(
+   Task AddAccountToList(Models.Account account); 
+   Task<Models.Account> CloseAccount(Guid accountId);
+   Task<IList<Models.Account>> GetUserAccounts(Guid ownerId);
+   Task<Models.Account> ChangeInterestRate(Guid accountId, decimal interestRate);
+   Task<Models.Account> GetAccountById(Guid accountId);
+   Task<Models.Transaction> RegisterAccountTransaction(
        Guid accountId, 
        Guid counterpartyId, 
        decimal amount, 
        Currency currency,
        string description = "");
 
-   Models.Transaction RegisterIncomingOrOutgoingTransactionsCommand(
+   Task<Models.Transaction> RegisterIncomingOrOutgoingTransactionsCommand(
        Guid accountId,
        decimal amount,
        Currency currency,
        TransactionType transactionType,
        string description = "");
-   List<Models.Transaction> GetAccountTransactions(Guid accountId, DateTime? startDate, DateTime? endDate);
+   Task<List<Models.Transaction>> GetAccountTransactions(Guid accountId, DateTime? startDate, DateTime? endDate);
+   // ReSharper disable once UnusedMemberInSuper.Global
+   Task AccrueInterest(Guid accountId);
+   // ReSharper disable once UnusedMemberInSuper.Global
+   public Task AccrueInterestForAllAccounts();
 }
     

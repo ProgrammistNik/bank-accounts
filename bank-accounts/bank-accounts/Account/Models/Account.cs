@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using bank_accounts.Account.Enums;
 using JetBrains.Annotations;
 
@@ -11,14 +12,17 @@ public class Account
     public Guid OwnerId { get; init; }
     public AccountType AccountType { get; init; }
     public Currency Currency { get; init; }
+    [Column(TypeName = "decimal(38, 10)")]
     public decimal Balance { get; set; }
     public decimal? InterestRate
     {
         [UsedImplicitly] get => _interestRate;
         set => _interestRate = AccountType == AccountType.Checking ? null : value;
     } // процентная ставка
-    public DateTime CreatedAt { [UsedImplicitly] get; set; }
+    public DateTime CreatedAt { [UsedImplicitly] get; init; }
     public DateTime? ClosedAt { get; set; }
     public bool IsClosed => ClosedAt.HasValue;
     public ICollection<Transaction> Transactions { get; } = new List<Transaction>();
+    
+    public uint Xmin { get; init; }
 }
