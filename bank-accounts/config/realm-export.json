@@ -1,0 +1,79 @@
+{
+  "realm": "BankAccount",
+  "enabled": true,
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": true,
+  "sslRequired": "none",
+  "clients": [
+    {
+      "clientId": "account",
+      "name": "Account",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost:8081/realms/BankAccount/account/*"
+      ],
+      "webOrigins": ["*"],
+      "baseUrl": "http://localhost:8081/realms/BankAccount/account/",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "attributes": {
+        "post.logout.redirect.uris": "*"
+      },
+      "defaultClientScopes": ["web-origins", "profile", "roles", "email"],
+      "optionalClientScopes": ["address", "phone"]
+    },
+    {
+      "clientId": "account-console",
+      "name": "Account Console",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost:8081/realms/BankAccount/account/*"
+      ],
+      "webOrigins": ["*"],
+      "baseUrl": "http://localhost:8081/realms/BankAccount/account/",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "attributes": {
+        "post.logout.redirect.uris": "*",
+        "pkce.code.challenge.method": "S256"
+      },
+      "defaultClientScopes": ["web-origins", "profile", "roles", "email"],
+      "optionalClientScopes": ["address", "phone"]
+    },
+    {
+      "clientId": "AccountClient",
+      "secret": "my-secret",
+      "name": "Account Backend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "redirectUris": [],
+      "webOrigins": [],
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "defaultClientScopes": ["roles", "profile", "email"],
+      "optionalClientScopes": []
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "Default user role"
+      },
+      {
+        "name": "admin",
+        "description": "Administrator role"
+      }
+    ]
+  },
+  "users": []
+}
