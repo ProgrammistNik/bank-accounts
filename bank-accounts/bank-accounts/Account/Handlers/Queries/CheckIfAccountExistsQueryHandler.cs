@@ -9,9 +9,9 @@ namespace bank_accounts.Account.Handlers.Queries;
 public class CheckIfAccountExistsQueryHandler(IAccountService accountService, IMapper mapper)
     : IRequestHandler<CheckIfAccountsExistsQuery, ReturnAccountDto>
 {
-    public Task<ReturnAccountDto> Handle(CheckIfAccountsExistsQuery request, CancellationToken cancellationToken)
+    public async Task<ReturnAccountDto> Handle(CheckIfAccountsExistsQuery request, CancellationToken cancellationToken)
     {
-        var account = accountService.GetAccountById(request.AccountId);
-        return Task.FromResult(mapper.Map<ReturnAccountDto>(account));
+        var account = await accountService.GetAccountById(request.AccountId);
+        return mapper.Map<ReturnAccountDto>(account);
     }
 }

@@ -1,16 +1,21 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
+using bank_accounts.Account.Data;
 using bank_accounts.Account.Exceptions;
 using bank_accounts.Account.Interfaces;
 using bank_accounts.Account.PipelineBehaviors;
 using bank_accounts.Account.Services;
+using bank_accounts.Hangfire;
 using FluentValidation;
+using Hangfire;
+using Hangfire.PostgreSql;
 using MediatR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.OpenApi.Models;
 using Hellang.Middleware.ProblemDetails;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -139,14 +144,24 @@ builder.Services.Configure<JwtBearerOptions>("Bearer", options =>
     };
 });
 
-builder.Services.AddAutoMapper(typeof(Program).Assembly);
+builder.Services.AddDbContext<BankAccountsDbContext>(options =>
+{
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection"));
+});
 
+builder.Services.AddHangfire(config =>
+    config.UsePostgreSqlStorage(c =>
+        c.UseNpgsqlConnection(builder.Configuration.GetConnectionString("DefaultConnection"))));
+
+builder.Services.AddHangfireServer();
+
+builder.Services.AddAutoMapper(typeof(Program).Assembly);
 builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
 
 builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
 builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
 
-builder.Services.AddSingleton<IAccountService, AccountService>();
+builder.Services.AddScoped<IAccountService, AccountService>();
 builder.Services.AddScoped<IClientVerifyService, ClientVerifyService>();
 builder.Services.AddScoped<ICurrencyService, CurrencyService>();
 
@@ -190,6 +205,12 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<BankAccountsDbContext>();
+    db.Database.Migrate();
+}
+
 app.UseProblemDetails();
 app.UseMiddleware<ValidationExceptionMiddleware>();
 
@@ -198,9 +219,27 @@ app.UseSwaggerUI(options => options.SwaggerEndpoint("/swagger/v1/swagger.json", 
 
 app.UseCors("AllowAll");
 
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
+{
+    Authorization = [new HangfireDashboardAuthorizationFilter()]
+});
+
+RecurringJob.AddOrUpdate<AccountService>(
+    "accrue-interest-job",
+    service => service.AccrueInterestForAllAccounts(),
+    Cron.Daily);
+
 //app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// if (app.Environment.IsDevelopment())
+// {
+//     app.UseDeveloperExceptionPage();
+// }
+
 app.Run();
+
+public partial class Program;

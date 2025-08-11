@@ -10,15 +10,15 @@ namespace bank_accounts.Account.Handlers.Queries;
 public class GetUserAccountsHandler(IAccountService accountService, IClientVerifyService verifyService, IMapper mapper)
     : IRequestHandler<GetUserAccountsQuery, IList<ReturnAccountDto>>
 {
-    public Task<IList<ReturnAccountDto>> Handle(GetUserAccountsQuery request, CancellationToken cancellationToken)
+    public async Task<IList<ReturnAccountDto>> Handle(GetUserAccountsQuery request, CancellationToken cancellationToken)
     {
         if (!verifyService.VerifyClient(request.OwnerId))
         {
             throw new CustomExceptions.OwnerNotFoundException(request.OwnerId);
         }
         
-        var accounts = accountService.GetUserAccounts(request.OwnerId);
+        var accounts = await accountService.GetUserAccounts(request.OwnerId);
         
-        return Task.FromResult(mapper.Map<IList<ReturnAccountDto>>(accounts));
+        return mapper.Map<IList<ReturnAccountDto>>(accounts);
     }
 }

@@ -6,12 +6,19 @@ services:
     build:
       context: .
       dockerfile: bank-accounts/Dockerfile
-    command: ["dotnet run"]
+    command: ["sh", "-c", "dotnet run"]
+
     ports:
       - "8080:8080"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=bank_accounts;Username=postgres;Password=1234567890
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - bank-accounts-network
     
   keycloak:
     image: quay.io/keycloak/keycloak:26.3.2
@@ -30,4 +37,30 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped 
+    restart: unless-stopped
+    networks:
+      - bank-accounts-network
+  
+  db:
+    image: postgres:15
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234567890
+      POSTGRES_DB: bank_accounts
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bank-accounts-network
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+
+networks:
+  bank-accounts-network:

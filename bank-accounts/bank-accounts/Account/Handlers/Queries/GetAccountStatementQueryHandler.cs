@@ -9,10 +9,10 @@ namespace bank_accounts.Account.Handlers.Queries;
 public class GetAccountStatementQueryHandler(IAccountService accountService, IMapper mapper)
     : IRequestHandler<GetAccountStatementQuery, IList<ReturnTransactionDto>>
 {
-    public Task<IList<ReturnTransactionDto>> Handle(GetAccountStatementQuery request, CancellationToken cancellationToken)
+    public async Task<IList<ReturnTransactionDto>> Handle(GetAccountStatementQuery request, CancellationToken cancellationToken)
     {
-        var transactions = accountService.GetAccountTransactions(request.AccountId, request.From, request.To);
+        var transactions = await accountService.GetAccountTransactions(request.AccountId, request.From, request.To);
         
-        return Task.FromResult(mapper.Map<IList<ReturnTransactionDto>>(transactions));
+        return mapper.Map<IList<ReturnTransactionDto>>(transactions);
     }
 }
