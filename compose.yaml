@@ -1,0 +1,95 @@
+﻿version: '3.8'
+
+services:
+  bank-accounts:
+    image: bank-accounts
+    build:
+      context: .
+      dockerfile: bank-accounts/Dockerfile
+    command: ["sh", "-c", "dotnet run"]
+
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=bank_accounts;Username=postgres;Password=1234567890
+      - ConnectionStrings__RabbitMQ=amqp://admin:password@rabbitmq:5672
+      - RabbitMQ__HostName=rabbitmq
+      - RabbitMQ__Port=5672
+      - RabbitMQ__UserName=admin
+      - RabbitMQ__Password=password
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - bank-accounts-network
+    
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.2
+    environment:
+      - KC_BOOTSTRAP_ADMIN_USERNAME=admin
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+    command:
+      - start-dev
+      - --import-realm
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ./config/realm-export.json:/opt/keycloak/data/import/realm.json
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8081/auth/realms/master" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - bank-accounts-network
+  
+  db:
+    image: postgres:15
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 1234567890
+      POSTGRES_DB: bank_accounts
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bank-accounts-network
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-U", "postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+  rabbitmq:
+    image: rabbitmq:3-management
+    hostname: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: password
+      RABBITMQ_DEFAULT_VHOST: /
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "check_port_connectivity" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - bank-accounts-network
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+
+networks:
+  bank-accounts-network:
