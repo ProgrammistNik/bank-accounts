@@ -20,6 +20,6 @@ public class ValidationBehavior<TRequest, TResponse>(IEnumerable<IValidator<TReq
         {
             throw new ValidationException(failures);
         }
-        return await next(cancellationToken);
+        return await next();
     }
 }

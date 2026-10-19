@@ -10,7 +10,6 @@ using Testcontainers.RabbitMq;
 
 namespace bank_accounts.IntegrationTests;
 
-// ReSharper disable once ClassNeverInstantiated.Global
 public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly PostgreSqlContainer _dbContainer = new PostgreSqlBuilder()
@@ -40,8 +39,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         await _rabbitMqContainer.DisposeAsync();
     }
     
-    public async Task StopRabbitAsync() => await _rabbitMqContainer.StopAsync();
-    public async Task StartRabbitAsync() => await _rabbitMqContainer.StartAsync();
+    public async Task StopRabbitAsync() => await _rabbitMqContainer.PauseAsync();
+    public async Task StartRabbitAsync() => await _rabbitMqContainer.UnpauseAsync();
     
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -50,21 +49,20 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>, IAsyn
         {
             var rabbitMqPort = _rabbitMqContainer.GetMappedPublicPort(5672);
 
-            var rabbitHostAndPort = $"localhost:{rabbitMqPort}";
+            var rabbitHost = _rabbitMqContainer.Hostname;
+            var rabbitHostAndPort = $"{rabbitHost}:{rabbitMqPort}";
 
-            var inMemorySettings = new Dictionary<string, string>
+            var inMemorySettings = new Dictionary<string, string?>
             {
                 ["ConnectionStrings:DefaultConnection"] = _dbContainer.GetConnectionString(),
-                ["RabbitMQ:HostName"] = "localhost",
+                ["RabbitMQ:HostName"] = rabbitHost,
                 ["RabbitMQ:Port"] = rabbitMqPort.ToString(),
                 ["RabbitMQ:UserName"] = "guest",
                 ["RabbitMQ:Password"] = "guest",
                 ["RabbitMQ:HostAndPort"] = rabbitHostAndPort
             };
 
-#pragma warning disable CS8620 // Argument cannot be used for parameter due to differences in the nullability of reference types.
             config.AddInMemoryCollection(inMemorySettings);
-#pragma warning restore CS8620 // Argument cannot be used for parameter due to differences in the nullability of reference types.
         });
 
         builder.ConfigureServices(services =>

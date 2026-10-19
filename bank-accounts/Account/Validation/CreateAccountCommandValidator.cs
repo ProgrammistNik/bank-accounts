@@ -1,4 +1,5 @@
 using bank_accounts.Account.Commands;
+using bank_accounts.Account.Enums;
 using FluentValidation;
 using JetBrains.Annotations;
 
@@ -17,5 +18,22 @@ public class CreateAccountCommandValidator : AbstractValidator<CreateAccountComm
             .NotEmpty()
             .Must(id => id != Guid.Empty)
             .WithMessage("OwnerId не может быть пустым GUID.");
+
+        RuleFor(x => x.AccountType)
+            .IsInEnum();
+
+        RuleFor(x => x.Currency)
+            .IsInEnum();
+
+        RuleFor(x => x.Balance)
+            .GreaterThanOrEqualTo(0);
+
+        RuleFor(x => x.InterestRate)
+            .NotNull()
+            .When(x => x.AccountType != AccountType.Checking);
+
+        RuleFor(x => x.InterestRate)
+            .InclusiveBetween(0, 100)
+            .When(x => x.InterestRate.HasValue);
     }
 }

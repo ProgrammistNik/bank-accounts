@@ -22,6 +22,8 @@ public class RegisterIncomingOrOutgoingTransactionValidator : AbstractValidator<
          .GreaterThan(0)
          .WithMessage("Amount должен быть больше нуля.");
       RuleFor(x => x.Currency)
-         .NotEmpty();
+         .IsInEnum();
+      RuleFor(x => x.TransactionType)
+         .IsInEnum();
    }
 }

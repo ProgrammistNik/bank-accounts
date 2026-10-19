@@ -14,5 +14,6 @@ public class ChangeInterestRateCommandValidator : AbstractValidator<ChangeIntere
         RuleLevelCascadeMode = CascadeMode.Stop;
         
         RuleFor(x => x.AccountId).NotEmpty();
+        RuleFor(x => x.InterestRate).InclusiveBetween(0, 100);
     }
 }

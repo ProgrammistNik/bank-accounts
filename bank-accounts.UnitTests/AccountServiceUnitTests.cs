@@ -1,5 +1,6 @@
 using bank_accounts.Account.Data;
 using bank_accounts.Account.Enums;
+using bank_accounts.Account.Exceptions;
 using bank_accounts.Account.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -28,7 +29,7 @@ public class AccountServiceUnitTests
                 OwnerId = Guid.NewGuid(),
                 AccountType = AccountType.Checking,
                 Currency = Currency.Rub,
-                Balance = 1000,
+                Balance = 0,
                 CreatedAt = DateTime.UtcNow,
                 ClosedAt = null
             };
@@ -45,6 +46,32 @@ public class AccountServiceUnitTests
             Assert.That(closedAccount, Is.Not.Null);
             Assert.That(closedAccount.IsClosed, Is.True);
         }
+    }
+
+    [Test]
+    public async Task CloseAccount_ShouldRejectAccountWithNonZeroBalance()
+    {
+        var options = new DbContextOptionsBuilder<BankAccountsDbContext>()
+            .UseInMemoryDatabase(databaseName: "CloseAccountWithBalanceTestDb")
+            .Options;
+
+        var accountId = Guid.NewGuid();
+        await using var context = new BankAccountsDbContext(options);
+        context.Accounts.Add(new Account.Models.Account
+        {
+            Id = accountId,
+            OwnerId = Guid.NewGuid(),
+            AccountType = AccountType.Checking,
+            Currency = Currency.Rub,
+            Balance = 1000,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var service = new AccountService(context);
+
+        Assert.ThrowsAsync<CustomExceptions.AccountBalanceNotZeroException>(async () =>
+            await service.CloseAccount(accountId));
     }
     
     [Test]
@@ -126,7 +153,7 @@ public class AccountServiceUnitTests
                 var accountFrom = new Account.Models.Account
                 {
                     Id = accountIdFrom,
-                    // OwnerId = Guid.NewGuid(),
+                    OwnerId = Guid.NewGuid(),
                     AccountType = AccountType.Checking,
                     Currency = Currency.Rub,
                     Balance = 1000,

@@ -6,6 +6,6 @@ public class HangfireDashboardAuthorizationFilter : IDashboardAuthorizationFilte
 {
     public bool Authorize(DashboardContext context)
     {
-        return true;
+        return context.GetHttpContext().User.Identity?.IsAuthenticated == true;
     }
 }

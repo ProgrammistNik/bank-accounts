@@ -87,7 +87,7 @@ Log.Information("Запуск приложения");
             Detail = ex.Message
         });
 
-        o.Map<CustomExceptions.CurriesDontMatchException>(ex => new ProblemDetails
+        o.Map<CustomExceptions.CurrenciesDoNotMatchException>(ex => new ProblemDetails
         {
             Type = ex.Type,
             Title = ex.Title,
@@ -102,19 +102,33 @@ Log.Information("Запуск приложения");
             Status = (int)ex.StatusCode,
             Detail = ex.Message
         });
+
+        o.Map<CustomExceptions.ConcurrencyConflictException>(ex => new ProblemDetails
+        {
+            Type = ex.Type,
+            Title = ex.Title,
+            Status = (int)ex.StatusCode,
+            Detail = ex.Message
+        });
+
+        o.Map<CustomExceptions.InvalidBalanceStateException>(ex => new ProblemDetails
+        {
+            Type = ex.Type,
+            Title = ex.Title,
+            Status = (int)ex.StatusCode,
+            Detail = ex.Message
+        });
+
+        o.Map<CustomExceptions.AccountBalanceNotZeroException>(ex => new ProblemDetails
+        {
+            Type = ex.Type,
+            Title = ex.Title,
+            Status = (int)ex.StatusCode,
+            Detail = ex.Message
+        });
     });
 
     builder.Services.Configure<ApiBehaviorOptions>(options => { options.SuppressModelStateInvalidFilter = true; });
-
-    builder.Services.AddCors(options =>
-    {
-        options.AddPolicy("AllowAll", policy =>
-        {
-            policy.AllowAnyOrigin()
-                .AllowAnyMethod()
-                .AllowAnyHeader();
-        });
-    });
 
     builder.Services.AddAuthentication("Bearer")
         .AddJwtBearer("Bearer", options =>
@@ -123,31 +137,16 @@ Log.Information("Запуск приложения");
             options.RequireHttpsMetadata = false;
             options.TokenValidationParameters = new TokenValidationParameters
             {
-                ValidateAudience = false,
-                ValidateIssuer = false,
+                ValidateAudience = true,
+                ValidAudience = builder.Configuration["Keycloak:Audience"],
+                ValidateIssuer = true,
+                ValidIssuers = builder.Configuration.GetSection("Keycloak:ValidIssuers").Get<string[]>(),
                 ValidateIssuerSigningKey = true
             };
         });
     builder.Services.AddAuthorization();
 
     builder.Logging.AddConsole();
-
-    builder.Services.Configure<JwtBearerOptions>("Bearer", options =>
-    {
-        options.Events = new JwtBearerEvents
-        {
-            OnAuthenticationFailed = context =>
-            {
-                Console.WriteLine($"AUTH FAIL: {context.Exception}");
-                return Task.CompletedTask;
-            },
-            OnTokenValidated = _ =>
-            {
-                Console.WriteLine("Token is valid!");
-                return Task.CompletedTask;
-            }
-        };
-    });
 
     builder.Services.AddDbContext<BankAccountsDbContext>(options =>
     {
@@ -160,7 +159,6 @@ Log.Information("Запуск приложения");
 
     builder.Services.AddHangfireServer();
 
-    builder.Services.AddAutoMapper(typeof(Program).Assembly);
     builder.Services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(Program).Assembly));
 
     builder.Services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
@@ -225,44 +223,39 @@ Log.Information("Запуск приложения");
     }
 
     app.UseProblemDetails();
-    app.UseMiddleware<ValidationExceptionMiddleware>();
 
-    app.UseSwagger();
-    app.UseSwaggerUI(options => options.SwaggerEndpoint("/swagger/v1/swagger.json", "bank-accounts V1"));
-
-    app.UseCors("AllowAll");
-
-    app.UseHangfireDashboard("/hangfire", new DashboardOptions
+    if (app.Environment.IsDevelopment())
     {
-        Authorization = [new HangfireDashboardAuthorizationFilter()]
-    });
+        app.UseSwagger();
+        app.UseSwaggerUI(options => options.SwaggerEndpoint("/swagger/v1/swagger.json", "bank-accounts V1"));
+    }
 
-    RecurringJob.AddOrUpdate<AccountService>(
-        "accrue-interest-job",
-        service => service.AccrueInterestForAllAccounts(),
-        Cron.Daily);
-
-    RecurringJob.AddOrUpdate<OutboxPublisher>(
-        "publish-outbox-messages",
-        publisher => publisher.PublishPendingAsync(),
-        Cron.Minutely);
-
-//app.UseHttpsRedirection();
     app.UseAuthentication();
     app.UseAuthorization();
 
-    app.MapControllers();
+    if (!app.Environment.IsEnvironment("Testing"))
+    {
+        app.UseHangfireDashboard("/hangfire", new DashboardOptions
+        {
+            Authorization = [new HangfireDashboardAuthorizationFilter()]
+        });
 
-// if (app.Environment.IsDevelopment())
-// {
-//     app.UseDeveloperExceptionPage();
-// }
+        RecurringJob.AddOrUpdate<AccountService>(
+            "accrue-interest-job",
+            service => service.AccrueInterestForAllAccounts(),
+            Cron.Daily);
+
+        RecurringJob.AddOrUpdate<OutboxPublisher>(
+            "publish-outbox-messages",
+            publisher => publisher.PublishPendingAsync(),
+            Cron.Minutely);
+    }
+
+    app.MapControllers();
 
     app.Run();
 
 namespace bank_accounts
 {
-    // ReSharper disable once PartialTypeWithSinglePart
-    // ReSharper disable once ClassNeverInstantiated.Global
     public partial class Program;
 }

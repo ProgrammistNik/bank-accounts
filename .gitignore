@@ -1,0 +1,10 @@
+.env
+.idea/
+.serena/
+.vscode/
+**/bin/
+**/obj/
+TestResults/
+*.user
+*.suo
+*.log

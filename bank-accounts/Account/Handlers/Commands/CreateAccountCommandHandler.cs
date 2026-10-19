@@ -1,4 +1,3 @@
-using AutoMapper;
 using bank_accounts.Account.Commands;
 using bank_accounts.Account.Dto;
 using bank_accounts.Account.Enums;
@@ -11,8 +10,7 @@ namespace bank_accounts.Account.Handlers.Commands;
 public class CreateAccountCommandHandler(
     IAccountService accountService,
     IClientVerifyService verifyService,
-    ICurrencyService currencyService,
-    IMapper mapper)
+    ICurrencyService currencyService)
     : IRequestHandler<CreateAccountCommand, ReturnAccountDto>
 {
     public async Task<ReturnAccountDto> Handle(CreateAccountCommand request, CancellationToken cancellationToken)
@@ -43,6 +41,6 @@ public class CreateAccountCommandHandler(
         
         await accountService.AddAccountToList(account);
 
-        return mapper.Map<ReturnAccountDto>(account);
+        return account.ToDto();
     }
 }

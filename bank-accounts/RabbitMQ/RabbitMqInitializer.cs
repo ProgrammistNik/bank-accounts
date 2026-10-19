@@ -15,7 +15,7 @@ public class RabbitMqInitializer(IConfiguration configuration)
             Port = configuration.GetValue<int>("RabbitMq:Port")
         };
 
-        var connection = factory.CreateConnection();
+        using var connection = factory.CreateConnection();
         using var channel = connection.CreateModel();
         
         channel.ExchangeDeclare(
@@ -24,10 +24,10 @@ public class RabbitMqInitializer(IConfiguration configuration)
             durable: true
         );
 
-        channel.QueueDeclare("account.crm", durable: true);
-        channel.QueueDeclare("account.notifications", durable: true);
+        channel.QueueDeclare("account.crm", durable: true, exclusive: false, autoDelete: false);
+        channel.QueueDeclare("account.notifications", durable: true, exclusive: false, autoDelete: false);
         channel.QueueDeclare("account.antifraud", durable: true, exclusive: false, autoDelete: false);
-        channel.QueueDeclare("account.audit", durable: true);
+        channel.QueueDeclare("account.audit", durable: true, exclusive: false, autoDelete: false);
 
         channel.QueueBind("account.crm", "account.events", "account.*");
         channel.QueueBind("account.notifications", "account.events", "money.*");

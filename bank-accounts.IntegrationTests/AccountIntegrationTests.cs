@@ -97,7 +97,6 @@ public class AccountIntegrationTests : IClassFixture<CustomWebApplicationFactory
         foreach (var response in responses)
         {
             if (response.IsSuccessStatusCode) continue;
-            // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
             switch (response.StatusCode)
             {
                 case HttpStatusCode.Conflict:

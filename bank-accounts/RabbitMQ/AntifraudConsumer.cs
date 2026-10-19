@@ -9,162 +9,229 @@ using Serilog;
 
 namespace bank_accounts.RabbitMQ;
 
-public class AntifraudConsumer(IServiceScopeFactory scopeFactory, IConfiguration configuration)
+public sealed class AntifraudConsumer(IServiceScopeFactory scopeFactory, IConfiguration configuration)
     : BackgroundService
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     private IConnection? _connection;
     private IModel? _channel;
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var factory = new ConnectionFactory
         {
             HostName = configuration["RabbitMq:HostName"],
             UserName = configuration["RabbitMq:UserName"],
             Password = configuration["RabbitMq:Password"],
-            Port = 5672
+            Port = configuration.GetValue<int>("RabbitMq:Port"),
+            DispatchConsumersAsync = true
         };
 
         _connection = factory.CreateConnection();
         _channel = _connection.CreateModel();
         _channel.BasicQos(0, 1, false);
 
-        var consumer = new EventingBasicConsumer(_channel);
-
-        consumer.Received += async (_, ea) =>
-        {
-            var json = Encoding.UTF8.GetString(ea.Body.ToArray());
-
-            JsonDocument doc;
-            try
-            {
-                doc = JsonDocument.Parse(json);
-            }
-            catch
-            {
-                _channel!.BasicNack(ea.DeliveryTag, false, false);
-                return;
-            }
-
-            var root = doc.RootElement;
-#pragma warning disable CA1869
-            var payload = root.GetProperty("payload").Deserialize<ClientStatusChanged>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-#pragma warning restore CA1869
-            var type = payload!.Status == "Blocked" ? "ClientBlocked" : "ClientUnblocked";
-            var version = root.GetProperty("meta").TryGetProperty("version", out var v) ? v.GetString() : null;
-            var meta = root.GetProperty("meta")
-#pragma warning disable CA1869
-                .Deserialize<Meta>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-#pragma warning restore CA1869
-            if (version != "v1")
-            {
-                using var scope = scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<BankAccountsDbContext>();
-
-#pragma warning disable CA1869
-                var payloadObj = root.GetProperty("payload").Deserialize<ClientStatusChanged>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-#pragma warning restore CA1869
-
-                db.InboxDeadLetters.Add(new InboxDeadLetter
-                {
-                    Id = Guid.NewGuid(),
-                    Type = type,
-                    Payload = payloadObj!,
-                    OccurredAt = DateTime.UtcNow,
-                    PublishedAt = null,
-#pragma warning disable CS8601 // Possible null reference assignment.
-                    Meta = meta
-#pragma warning restore CS8601 // Possible null reference assignment.
-                });
-                await db.SaveChangesAsync(stoppingToken);
-                
-                var retry = ea.BasicProperties.Headers?["X-Retry"] is byte[] r ? Encoding.UTF8.GetString(r) : "0";
-                var latency = ea.BasicProperties.Headers?["X-Latency"] is byte[] l ? Encoding.UTF8.GetString(l) : null;
-                Log.Warning(
-                    "Неправильная версия сообщения: {EventId}, {Type}, {CorrelationId}, {Retry}, {Latency}", 
-                    root.TryGetProperty("eventId", out var eid) ? eid.GetGuid() : Guid.Empty, 
-                    type, 
-                    meta?.CorrelationId,
-                    retry,
-                    latency
-                    );
-                _channel!.BasicAck(ea.DeliveryTag, false);
-                return;
-            }
-
-            var eventId = root.GetProperty("eventId").GetGuid();
-            var occurredAt = root.GetProperty("occurredAt").GetDateTime();
-
-            using var scope2 = scopeFactory.CreateScope();
-            var db2 = scope2.ServiceProvider.GetRequiredService<BankAccountsDbContext>();
-
-            var alreadyProcessed = await db2.Inboxes.AnyAsync(x => x.Id == eventId, stoppingToken);
-            if (alreadyProcessed)
-            {
-                _channel!.BasicAck(ea.DeliveryTag, false);
-                Log.Information("Сообщение уже обработано: {EventId}, {Type}, {CorrelationId}", eventId, type, meta?.CorrelationId);
-                return;
-            }
-
-            await using var tx = await db2.Database.BeginTransactionAsync(stoppingToken);
-            try
-            {
-                if (payload.Status.Equals("Blocked", StringComparison.OrdinalIgnoreCase))
-                {
-                    await db2.Accounts
-                        .Where(a => a.OwnerId == payload.OwnerId)
-                        .ExecuteUpdateAsync(a => a.SetProperty(x => x.IsFrozen, true), stoppingToken);
-                }
-                else
-                {
-                    await db2.Accounts
-                        .Where(a => a.OwnerId == payload.OwnerId)
-                        .ExecuteUpdateAsync(a => a.SetProperty(x => x.IsFrozen, false), stoppingToken);
-                }
-
-                db2.Inboxes.Add(new Inbox
-                {
-                    Id = eventId,
-                    Type = type,
-                    Payload = payload,
-                    OccurredAt = occurredAt,
-                    PublishedAt = null,
-#pragma warning disable CS8601 // Possible null reference assignment.
-                    Meta = meta
-#pragma warning restore CS8601 // Possible null reference assignment.
-                });
-
-                await db2.SaveChangesAsync(stoppingToken);
-                var retry = ea.BasicProperties.Headers?["X-Retry"] is byte[] r ? Encoding.UTF8.GetString(r) : "0";
-                var latency = ea.BasicProperties.Headers?["X-Latency"] is byte[] l ? Encoding.UTF8.GetString(l) : null;
-                Log.Information(
-                    "Сообщение успешно обработано: {EventId}, {Type}, {CorrelationId}, {Retry}, {Latency}", 
-                    eventId, 
-                    type, 
-                    meta?.CorrelationId,
-                    retry,
-                    latency);
-                await tx.CommitAsync(stoppingToken);
-
-                _channel!.BasicAck(ea.DeliveryTag, false);
-            }
-            catch (Exception ex)
-            {
-                await tx.RollbackAsync(stoppingToken);
-                var retry = ea.BasicProperties.Headers?["X-Retry"] is byte[] r ? Encoding.UTF8.GetString(r) : "0";
-                var latency = ea.BasicProperties.Headers?["X-Latency"] is byte[] l ? Encoding.UTF8.GetString(l) : null;
-                Log.Error(ex, 
-                    "Ошибка при получении сообщения {MessageId}, {Type}, {CorrelationId}, {Retry}, {Latency}",
-                    eventId,
-                    type, 
-                    meta?.CorrelationId,
-                    retry,
-                    latency);
-                _channel!.BasicNack(ea.DeliveryTag, false, true);
-            }
-        };
-
+        var consumer = new AsyncEventingBasicConsumer(_channel);
+        consumer.Received += (_, eventArgs) => HandleMessageAsync(eventArgs, stoppingToken);
         _channel.BasicConsume("account.antifraud", false, consumer);
-        return Task.CompletedTask;
+
+        try
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task HandleMessageAsync(BasicDeliverEventArgs eventArgs, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(eventArgs.Body);
+            var root = document.RootElement;
+
+            if (!TryReadMessage(root, out var eventId, out var occurredAt, out var payload, out var meta))
+            {
+                Log.Warning("Получено некорректное antifraud-сообщение");
+                Reject(eventArgs.DeliveryTag, false);
+                return;
+            }
+
+            var type = GetEventType(payload.Status);
+            if (meta.Version != "v1" || type is null)
+            {
+                await SaveDeadLetterAsync(type ?? "ClientStatusChanged", payload, occurredAt, meta, cancellationToken);
+                Log.Warning(
+                    "Antifraud-сообщение отправлено в dead letter: {EventId}, {Status}, {Version}, {CorrelationId}, {Retry}, {Latency}",
+                    eventId,
+                    payload.Status,
+                    meta.Version,
+                    meta.CorrelationId,
+                    ReadHeader(eventArgs.BasicProperties, "X-Retry") ?? "0",
+                    ReadHeader(eventArgs.BasicProperties, "X-Latency"));
+                Acknowledge(eventArgs.DeliveryTag);
+                return;
+            }
+
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<BankAccountsDbContext>();
+
+            if (await db.Inboxes.AnyAsync(x => x.Id == eventId, cancellationToken))
+            {
+                Acknowledge(eventArgs.DeliveryTag);
+                Log.Information(
+                    "Antifraud-сообщение уже обработано: {EventId}, {Type}, {CorrelationId}",
+                    eventId,
+                    type,
+                    meta.CorrelationId);
+                return;
+            }
+
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+            var isFrozen = type == "ClientBlocked";
+            await db.Accounts
+                .Where(account => account.OwnerId == payload.OwnerId)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(account => account.IsFrozen, isFrozen),
+                    cancellationToken);
+
+            db.Inboxes.Add(new Inbox
+            {
+                Id = eventId,
+                Type = type,
+                Payload = payload,
+                OccurredAt = occurredAt,
+                Meta = meta
+            });
+
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            Acknowledge(eventArgs.DeliveryTag);
+
+            Log.Information(
+                "Antifraud-сообщение обработано: {EventId}, {Type}, {CorrelationId}, {Retry}, {Latency}",
+                eventId,
+                type,
+                meta.CorrelationId,
+                ReadHeader(eventArgs.BasicProperties, "X-Retry") ?? "0",
+                ReadHeader(eventArgs.BasicProperties, "X-Latency"));
+        }
+        catch (JsonException exception)
+        {
+            Log.Warning(exception, "Получено antifraud-сообщение с некорректным JSON");
+            Reject(eventArgs.DeliveryTag, false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            Log.Error(exception, "Ошибка обработки antifraud-сообщения {DeliveryTag}", eventArgs.DeliveryTag);
+            Reject(eventArgs.DeliveryTag, true);
+        }
+    }
+
+    private async Task SaveDeadLetterAsync(
+        string type,
+        ClientStatusChanged payload,
+        DateTime occurredAt,
+        Meta meta,
+        CancellationToken cancellationToken)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BankAccountsDbContext>();
+        db.InboxDeadLetters.Add(new InboxDeadLetter
+        {
+            Id = Guid.NewGuid(),
+            Type = type,
+            Payload = payload,
+            OccurredAt = occurredAt,
+            Meta = meta
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static bool TryReadMessage(
+        JsonElement root,
+        out Guid eventId,
+        out DateTime occurredAt,
+        out ClientStatusChanged payload,
+        out Meta meta)
+    {
+        eventId = Guid.Empty;
+        occurredAt = default;
+        payload = null!;
+        meta = null!;
+
+        if (!root.TryGetProperty("eventId", out var eventIdElement) ||
+            !eventIdElement.TryGetGuid(out eventId) ||
+            !root.TryGetProperty("occurredAt", out var occurredAtElement) ||
+            !occurredAtElement.TryGetDateTime(out occurredAt) ||
+            !root.TryGetProperty("payload", out var payloadElement) ||
+            !root.TryGetProperty("meta", out var metaElement))
+        {
+            return false;
+        }
+
+        payload = payloadElement.Deserialize<ClientStatusChanged>(SerializerOptions)!;
+        meta = metaElement.Deserialize<Meta>(SerializerOptions)!;
+
+        return payload is not null &&
+               payload.OwnerId != Guid.Empty &&
+               !string.IsNullOrWhiteSpace(payload.Status) &&
+               meta is not null &&
+               !string.IsNullOrWhiteSpace(meta.Version);
+    }
+
+    private static string? GetEventType(string status)
+    {
+        if (status.Equals("Blocked", StringComparison.OrdinalIgnoreCase))
+        {
+            return "ClientBlocked";
+        }
+
+        if (status.Equals("Unblocked", StringComparison.OrdinalIgnoreCase))
+        {
+            return "ClientUnblocked";
+        }
+
+        return null;
+    }
+
+    private static string? ReadHeader(IBasicProperties properties, string name)
+    {
+        if (properties.Headers?.TryGetValue(name, out var value) != true)
+        {
+            return null;
+        }
+
+        return value switch
+        {
+            byte[] bytes => Encoding.UTF8.GetString(bytes),
+            _ => value?.ToString()
+        };
+    }
+
+    private void Acknowledge(ulong deliveryTag)
+    {
+        _channel?.BasicAck(deliveryTag, false);
+    }
+
+    private void Reject(ulong deliveryTag, bool requeue)
+    {
+        _channel?.BasicNack(deliveryTag, false, requeue);
+    }
+
+    public override void Dispose()
+    {
+        _channel?.Dispose();
+        _connection?.Dispose();
+        base.Dispose();
     }
 }

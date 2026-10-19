@@ -5,13 +5,14 @@ using bank_accounts.Account.Exceptions;
 using bank_accounts.Account.Interfaces;
 using bank_accounts.RabbitMQ.Models;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using Transaction = bank_accounts.Account.Models.Transaction;
 
 namespace bank_accounts.Account.Services;
 
 public class AccountService(BankAccountsDbContext context) : IAccountService
 {
+    private const string InterestAccrualDescription = "Daily interest accrual";
+
     public async Task AddAccountToList(Models.Account account)
     {
         await context.Accounts.AddAsync(account);
@@ -48,6 +49,11 @@ public class AccountService(BankAccountsDbContext context) : IAccountService
         if (account.IsClosed)
         {
             return account;
+        }
+
+        if (account.Balance != 0)
+        {
+            throw new CustomExceptions.AccountBalanceNotZeroException(accountId);
         }
         
         account.ClosedAt = DateTime.UtcNow;
@@ -115,17 +121,32 @@ public class AccountService(BankAccountsDbContext context) : IAccountService
     public async Task<Transaction> RegisterAccountTransaction(Guid accountId, Guid counterpartyId, decimal amount, Currency currency,
         string description = "")
     {
-        if(accountId == counterpartyId)
+        if (accountId == counterpartyId)
         {
-            throw new CustomExceptions.InvalidTransferException("Account не counterparty могут быть одинаковыми");
+            throw new CustomExceptions.InvalidTransferException("Account и counterparty не могут совпадать");
         }
-        
-        await using var dbTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+
+        if (amount <= 0)
+        {
+            throw new CustomExceptions.InvalidTransferException("Сумма должна быть больше нуля");
+        }
+
+        await using var dbTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
 
         try
         {
-            var totalBalanceBeforeTransaction = await context.Accounts.SumAsync(a => a.Balance);
-            var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId);
+            if (context.Database.IsNpgsql())
+            {
+                await context.Database.ExecuteSqlInterpolatedAsync(
+                    $@"SELECT 1 FROM ""Accounts"" WHERE ""Id"" = {accountId} OR ""Id"" = {counterpartyId} ORDER BY ""Id"" FOR UPDATE");
+            }
+
+            var accounts = await context.Accounts
+                .Where(a => a.Id == accountId || a.Id == counterpartyId)
+                .OrderBy(a => a.Id)
+                .ToListAsync();
+
+            var account = accounts.SingleOrDefault(a => a.Id == accountId);
             if (account == null)
             {
                 throw new CustomExceptions.AccountNotFoundException(accountId);
@@ -135,7 +156,7 @@ public class AccountService(BankAccountsDbContext context) : IAccountService
                 throw new CustomExceptions.AccountClosedException(accountId);
             }
             
-            var counterpartyAccount = await context.Accounts.FirstOrDefaultAsync(a => a.Id == counterpartyId);
+            var counterpartyAccount = accounts.SingleOrDefault(a => a.Id == counterpartyId);
             if (counterpartyAccount == null)
             {
                 throw new CustomExceptions.AccountNotFoundException(counterpartyId);
@@ -150,9 +171,9 @@ public class AccountService(BankAccountsDbContext context) : IAccountService
                 throw new CustomExceptions.InsufficientBalanceException(accountId);
             }
 
-            if (account.Currency != counterpartyAccount.Currency)
+            if (account.Currency != counterpartyAccount.Currency || account.Currency != currency)
             {
-                throw new CustomExceptions.CurriesDontMatchException();
+                throw new CustomExceptions.CurrenciesDoNotMatchException();
             }
         
             account.Balance -= amount;
@@ -237,30 +258,21 @@ public class AccountService(BankAccountsDbContext context) : IAccountService
                 Payload = System.Text.Json.JsonSerializer.Serialize(transferCompletedEvent),
                 OccurredAt = DateTime.UtcNow
             });
-            try
-            {
-                await context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                throw new CustomExceptions.ConcurrencyConflictException(accountId);
-            }
-            
-            var totalBalanceAfterTransaction = await context.Accounts.SumAsync(a => a.Balance);
-            if (!totalBalanceBeforeTransaction.Equals(totalBalanceAfterTransaction))
-            {
-                await dbTransaction.RollbackAsync();
-                throw new CustomExceptions.InvalidBalanceStateException(totalBalanceBeforeTransaction, totalBalanceAfterTransaction);
-            }
+            await context.SaveChangesAsync();
 
             await dbTransaction.CommitAsync(); 
         
             return transaction;
         }
-        catch (Exception e)
+        catch (DbUpdateConcurrencyException)
         {
             await dbTransaction.RollbackAsync();
-            throw new CustomExceptions.InvalidTransferException(e.Message);
+            throw new CustomExceptions.ConcurrencyConflictException(accountId);
+        }
+        catch (DbUpdateException e)
+        {
+            await dbTransaction.RollbackAsync();
+            throw new CustomExceptions.InvalidTransferException(e.InnerException?.Message ?? e.Message);
         }
         
     }
@@ -268,9 +280,20 @@ public class AccountService(BankAccountsDbContext context) : IAccountService
     public async Task<Transaction> RegisterIncomingOrOutgoingTransactionsCommand(Guid accountId, decimal amount, Currency currency,
         TransactionType transactionType, string description = "")
     {
-        await using var dbTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        if (amount <= 0)
+        {
+            throw new CustomExceptions.InvalidTransferException("Сумма должна быть больше нуля");
+        }
+
+        await using var dbTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
         try
         {
+            if (context.Database.IsNpgsql())
+            {
+                await context.Database.ExecuteSqlInterpolatedAsync(
+                    $@"SELECT 1 FROM ""Accounts"" WHERE ""Id"" = {accountId} FOR UPDATE");
+            }
+
             var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId);
             if (account == null)
             {
@@ -280,6 +303,11 @@ public class AccountService(BankAccountsDbContext context) : IAccountService
             if (account.IsClosed || account.IsFrozen)
             {
                 throw new CustomExceptions.AccountClosedException(accountId);
+            }
+
+            if (account.Currency != currency)
+            {
+                throw new CustomExceptions.CurrenciesDoNotMatchException();
             }
 
             switch (transactionType)
@@ -329,22 +357,20 @@ public class AccountService(BankAccountsDbContext context) : IAccountService
                 OccurredAt = DateTime.UtcNow
             });
             
-            try
-            {
-                await context.SaveChangesAsync();
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                throw new CustomExceptions.ConcurrencyConflictException(accountId);
-            }
+            await context.SaveChangesAsync();
             await dbTransaction.CommitAsync(); 
             
             return transaction;
         }
-        catch (Exception e)
+        catch (DbUpdateConcurrencyException)
         {
             await dbTransaction.RollbackAsync();
-            throw new CustomExceptions.InvalidTransferException(e.Message);
+            throw new CustomExceptions.ConcurrencyConflictException(accountId);
+        }
+        catch (DbUpdateException e)
+        {
+            await dbTransaction.RollbackAsync();
+            throw new CustomExceptions.InvalidTransferException(e.InnerException?.Message ?? e.Message);
         }
     }
 
@@ -382,22 +408,67 @@ public class AccountService(BankAccountsDbContext context) : IAccountService
     
     public async Task AccrueInterest(Guid accountId)
     {
-        var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId);
-        var amount = account!.Balance * (account.InterestRate / 100) / 365;
-        await using var connection = new NpgsqlConnection(context.Database.GetConnectionString());
-        await connection.OpenAsync();
+        await using var dbTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+        if (context.Database.IsNpgsql())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $@"SELECT 1 FROM ""Accounts"" WHERE ""Id"" = {accountId} FOR UPDATE");
+        }
 
-        await using var cmd = new NpgsqlCommand("CALL accrue_interest(@account_id)", connection);
-        cmd.Parameters.AddWithValue("account_id", accountId);
-        await cmd.ExecuteNonQueryAsync();
+        var account = await context.Accounts.FirstOrDefaultAsync(a => a.Id == accountId);
+
+        if (account == null)
+        {
+            throw new CustomExceptions.AccountNotFoundException(accountId);
+        }
+
+        if (account.IsClosed || account.AccountType == AccountType.Checking || !account.InterestRate.HasValue)
+        {
+            await dbTransaction.CommitAsync();
+            return;
+        }
+
+        var periodFrom = DateTime.UtcNow.Date;
+        var alreadyAccrued = await context.Transactions.AnyAsync(t =>
+            t.AccountId == accountId &&
+            t.Description == InterestAccrualDescription &&
+            t.CommitedAt >= periodFrom);
+        if (alreadyAccrued)
+        {
+            await dbTransaction.CommitAsync();
+            return;
+        }
+
+        var amount = decimal.Round(
+            account.Balance * (account.InterestRate.Value / 100) / 365,
+            10,
+            MidpointRounding.ToEven);
+        if (amount <= 0)
+        {
+            await dbTransaction.CommitAsync();
+            return;
+        }
+
+        var occurredAt = DateTime.UtcNow;
+        account.Balance += amount;
+        await context.Transactions.AddAsync(new Transaction
+        {
+            Id = Guid.NewGuid(),
+            AccountId = accountId,
+            Amount = amount,
+            Currency = account.Currency,
+            TransactionType = TransactionType.Credit,
+            Description = InterestAccrualDescription,
+            CommitedAt = occurredAt
+        });
         
         var @event = new
         {
             eventId = Guid.NewGuid(),
-            occurredAt = DateTime.UtcNow,
+            occurredAt,
             accountId = account.Id,
-            periodFrom = DateTime.UtcNow.AddDays(-1),
-            periodTo = DateTime.UtcNow,
+            periodFrom,
+            periodTo = occurredAt,
             amount
         };
 
@@ -406,15 +477,20 @@ public class AccountService(BankAccountsDbContext context) : IAccountService
             Id = Guid.NewGuid(),
             Type = "InterestAccrued",
             Payload = System.Text.Json.JsonSerializer.Serialize(@event),
-            OccurredAt = DateTime.UtcNow
+            OccurredAt = occurredAt
         });
         await context.SaveChangesAsync();
+        await dbTransaction.CommitAsync();
     }
 
 
     public async Task AccrueInterestForAllAccounts()
     {
-        var accountsId = await context.Accounts.Select(a => a.Id).ToListAsync();
+        var accountsId = await context.Accounts
+            .Where(a => !a.IsClosed && a.AccountType != AccountType.Checking && a.InterestRate.HasValue)
+            .OrderBy(a => a.Id)
+            .Select(a => a.Id)
+            .ToListAsync();
 
         foreach (var accountId in accountsId)
         {

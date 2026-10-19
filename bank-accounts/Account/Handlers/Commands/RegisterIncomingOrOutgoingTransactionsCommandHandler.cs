@@ -1,4 +1,3 @@
-using AutoMapper;
 using bank_accounts.Account.Commands;
 using bank_accounts.Account.Dto;
 using bank_accounts.Account.Interfaces;
@@ -6,7 +5,7 @@ using MediatR;
 
 namespace bank_accounts.Account.Handlers.Commands;
 
-public class RegisterIncomingOrOutgoingTransactionsCommandHandler(IAccountService accountService, IMapper mapper)
+public class RegisterIncomingOrOutgoingTransactionsCommandHandler(IAccountService accountService)
 : IRequestHandler<RegisterIncomingOrOutgoingTransactionsCommand, ReturnTransactionDto>
 {
     public async Task<ReturnTransactionDto> Handle(RegisterIncomingOrOutgoingTransactionsCommand request, CancellationToken cancellationToken)
@@ -17,6 +16,6 @@ public class RegisterIncomingOrOutgoingTransactionsCommandHandler(IAccountServic
             request.Currency,
             request.TransactionType,
             request.Description);
-        return mapper.Map<ReturnTransactionDto>(transaction);
+        return transaction.ToDto();
     }
 }

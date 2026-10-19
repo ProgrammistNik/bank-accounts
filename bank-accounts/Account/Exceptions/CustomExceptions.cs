@@ -45,7 +45,7 @@ public abstract class CustomExceptions(
         "Недостаточно средств",
         $"На аккаунте с таким id {accountId} недостаточно средств для выполнения операции");
     
-    public class CurriesDontMatchException() : CustomExceptions(HttpStatusCode.BadRequest,
+    public class CurrenciesDoNotMatchException() : CustomExceptions(HttpStatusCode.BadRequest,
         "https://tools.ietf.org/html/rfc7231#section-6.5.1",
         "Валюты не совпадают",
         "Валюты у счетов не совпадают"); 
@@ -65,4 +65,9 @@ public abstract class CustomExceptions(
         "https://tools.ietf.org/html/rfc7231#section-6.5.8",
         "Конфликт параллельных изменений",
         $"Аккаунт {accountId} был изменен другим пользователем.");
+
+    public class AccountBalanceNotZeroException(Guid accountId) : CustomExceptions(HttpStatusCode.Conflict,
+        "https://tools.ietf.org/html/rfc7231#section-6.5.8",
+        "Ненулевой баланс",
+        $"Счёт {accountId} нельзя закрыть, пока его баланс не равен нулю.");
 }

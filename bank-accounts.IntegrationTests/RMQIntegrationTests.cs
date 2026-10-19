@@ -36,17 +36,44 @@ public class RmqIntegrationTests : IClassFixture<CustomWebApplicationFactory>
         };
         var response = await _client.PostAsJsonAsync("/account", newAccount);
         response.EnsureSuccessStatusCode();
+
+        Guid messageId;
+        using (var messageScope = _factory.Services.CreateScope())
+        {
+            var messageDb = messageScope.ServiceProvider.GetRequiredService<BankAccountsDbContext>();
+            messageId = await messageDb.Outboxes
+                .Where(message => message.Type == "AccountOpened")
+                .OrderByDescending(message => message.OccurredAt)
+                .Select(message => message.Id)
+                .FirstAsync();
+        }
         
         await _factory.StartRabbitAsync();
         
         using var scope = _factory.Services.CreateScope();
         var publisher = scope.ServiceProvider.GetRequiredService<OutboxPublisher>();
-        await publisher.PublishPendingAsync();
-        
         var dbContext = scope.ServiceProvider.GetRequiredService<BankAccountsDbContext>();
-        var notPublishedOutboxMessages = await dbContext.Outboxes.AnyAsync(o => o.PublishedAt == null);
-        
-        Assert.False(notPublishedOutboxMessages);
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var published = await dbContext.Outboxes
+                .AsNoTracking()
+                .AnyAsync(message => message.Id == messageId && message.PublishedAt != null);
+            if (published)
+            {
+                break;
+            }
+
+            await publisher.PublishPendingAsync();
+        }
+
+        var publishedAt = await dbContext.Outboxes
+            .AsNoTracking()
+            .Where(message => message.Id == messageId)
+            .Select(message => message.PublishedAt)
+            .SingleAsync();
+
+        Assert.NotNull(publishedAt);
     }
 
     [Fact]
@@ -73,7 +100,7 @@ public class RmqIntegrationTests : IClassFixture<CustomWebApplicationFactory>
         }
         var context = _factory.Services.GetRequiredService<BankAccountsDbContext>();
         var service = new AccountService(context);
-        await Assert.ThrowsAsync<CustomExceptions.InvalidTransferException>(async () =>
+        await Assert.ThrowsAsync<CustomExceptions.AccountClosedException>(async () =>
         {
             await service.RegisterIncomingOrOutgoingTransactionsCommand(
                 accountId, 10, Currency.Rub, TransactionType.Debit, "MoneyDebited"

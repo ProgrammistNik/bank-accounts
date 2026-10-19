@@ -1,4 +1,3 @@
-using AutoMapper;
 using bank_accounts.Account.Dto;
 using bank_accounts.Account.Exceptions;
 using bank_accounts.Account.Interfaces;
@@ -7,7 +6,7 @@ using MediatR;
 
 namespace bank_accounts.Account.Handlers.Queries;
 
-public class GetUserAccountsHandler(IAccountService accountService, IClientVerifyService verifyService, IMapper mapper)
+public class GetUserAccountsHandler(IAccountService accountService, IClientVerifyService verifyService)
     : IRequestHandler<GetUserAccountsQuery, IList<ReturnAccountDto>>
 {
     public async Task<IList<ReturnAccountDto>> Handle(GetUserAccountsQuery request, CancellationToken cancellationToken)
@@ -19,6 +18,6 @@ public class GetUserAccountsHandler(IAccountService accountService, IClientVerif
         
         var accounts = await accountService.GetUserAccounts(request.OwnerId);
         
-        return mapper.Map<IList<ReturnAccountDto>>(accounts);
+        return accounts.Select(account => account.ToDto()).ToList();
     }
 }

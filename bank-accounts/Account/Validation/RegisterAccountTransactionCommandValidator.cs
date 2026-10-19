@@ -26,6 +26,6 @@ public class RegisterAccountTransactionCommandValidator : AbstractValidator<Regi
             .GreaterThan(0)
             .WithMessage("Amount должен быть больше нуля.");
         RuleFor(x => x.Currency)
-            .NotEmpty();
+            .IsInEnum();
     }
 }
