@@ -39,90 +39,79 @@ public class AccountIntegrationTests : IClassFixture<CustomWebApplicationFactory
     }
 
     [Fact]
-    public async Task FiftyParallelTransfers_ShouldKeepTotalBalance_AndAllowConflicts()
+    public async Task FiftyParallelTransfers_ShouldUpdateBalancesAndCreateTransactions()
     {
+        const int transferCount = 50;
+        const decimal transferAmount = 1m;
+        const decimal initialBalance = 100m;
+        var fromAccountId = Guid.NewGuid();
+        var toAccountId = Guid.NewGuid();
+
         using (var setupScope = _factory.Services.CreateScope())
         {
             var dbSetup = setupScope.ServiceProvider.GetRequiredService<BankAccountsDbContext>();
-        
+
             var account1 = new Account.Models.Account
             {
-                Id = Guid.NewGuid(),
+                Id = fromAccountId,
                 OwnerId = Guid.NewGuid(),
                 AccountType = Account.Enums.AccountType.Checking,
                 Currency = Account.Enums.Currency.Rub,
-                Balance = 100,
+                Balance = initialBalance,
                 CreatedAt = DateTime.UtcNow
             };
             var account2 = new Account.Models.Account
             {
-                Id = Guid.NewGuid(),
+                Id = toAccountId,
                 OwnerId = Guid.NewGuid(),
                 AccountType = Account.Enums.AccountType.Checking,
                 Currency = Account.Enums.Currency.Rub,
-                Balance = 100,
+                Balance = initialBalance,
                 CreatedAt = DateTime.UtcNow
             };
-        
+
             dbSetup.Accounts.AddRange(account1, account2);
             await dbSetup.SaveChangesAsync();
         }
-        using var scope = _factory.Services.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<BankAccountsDbContext>();
-    
-        var accounts = await dbContext.Accounts.Where(a => a.ClosedAt == null && a.Balance > 50).Take(2).ToListAsync();
-        var fromAccount = accounts[0];
-        var toAccount = accounts[1];
-    
-        var initialTotalBalance = await dbContext.Accounts.SumAsync(a => a.Balance);
-    
+
         var tasks = new List<Task<HttpResponseMessage>>();
-        for (var i = 0; i < 50; i++)
+        for (var i = 0; i < transferCount; i++)
         {
             var dto = new CreateTransactionDto
             {
-                AccountId = fromAccount.Id,
-                CounterpartyId = toAccount.Id,
-                Amount = 1,
-                Currency = fromAccount.Currency,
+                AccountId = fromAccountId,
+                CounterpartyId = toAccountId,
+                Amount = transferAmount,
+                Currency = Account.Enums.Currency.Rub,
                 Description = $"Transfer {i}"
             };
             tasks.Add(_client.PostAsJsonAsync("/transaction", dto));
         }
-    
+
         var responses = await Task.WhenAll(tasks);
-    
-        Assert.Contains(responses, r => r.IsSuccessStatusCode);
-    
+
         foreach (var response in responses)
         {
-            if (response.IsSuccessStatusCode) continue;
-            switch (response.StatusCode)
-            {
-                case HttpStatusCode.Conflict:
-                    
-                    continue;
-                case HttpStatusCode.BadRequest:
-                {
-                    var content = await response.Content.ReadAsStringAsync();
-                    if (!content.Contains("transient failure", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Assert.Fail($"Unexpected 400 failure without transient failure message: {content}");
-                    }
-    
-                    break;
-                }
-                default:
-                {
-                    var content = await response.Content.ReadAsStringAsync();
-                    Assert.Fail($"Unexpected failure: {(int)response.StatusCode} - {content}");
-                    break;
-                }
-            }
+            var content = await response.Content.ReadAsStringAsync();
+            Assert.True(
+                response.IsSuccessStatusCode,
+                $"Transfer failed with {(int)response.StatusCode}: {content}");
         }
-    
-        var finalTotalBalance = await dbContext.Accounts.SumAsync(a => a.Balance);
-        Assert.Equal(initialTotalBalance, finalTotalBalance);
+
+        using var assertionScope = _factory.Services.CreateScope();
+        var dbContext = assertionScope.ServiceProvider.GetRequiredService<BankAccountsDbContext>();
+        var accounts = await dbContext.Accounts
+            .Where(account => account.Id == fromAccountId || account.Id == toAccountId)
+            .ToDictionaryAsync(account => account.Id);
+
+        Assert.Equal(initialBalance - transferCount * transferAmount, accounts[fromAccountId].Balance);
+        Assert.Equal(initialBalance + transferCount * transferAmount, accounts[toAccountId].Balance);
+
+        var transactionCount = await dbContext.Transactions.CountAsync(transaction =>
+            (transaction.AccountId == fromAccountId && transaction.CounterpartyId == toAccountId) ||
+            (transaction.AccountId == toAccountId && transaction.CounterpartyId == fromAccountId));
+
+        Assert.Equal(transferCount * 2, transactionCount);
     }
     
     
